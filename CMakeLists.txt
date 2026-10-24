@@ -71,8 +71,8 @@ if(ENABLE_ROCM)
   include(FetchContent)
   FetchContent_Declare(
     cuda2rocm
-    URL https://github.com/hamstergamerszhang-ops/cuda2rocm/archive/e5cdf9da39679020e1444fc73096b7d4456e123a.tar.gz
-    URL_HASH SHA256=bfeba2e8c5599406b12db114f26ece3009b31d5f038733bd52ca6258dfcf5e1c
+    URL https://github.com/hamstergamerszhang-ops/cuda2rocm/archive/9c4c46917d5779b4d8cba8f8499a0d07f0b99e48.tar.gz
+    URL_HASH SHA256=2a01459e108988d28f11f78cd665cbcbc56f4a53036dbfc2d92b482433ddefbd
   )
   # We only need the headers, so populate without building
   FetchContent_GetProperties(cuda2rocm)
@@ -80,15 +80,15 @@ if(ENABLE_ROCM)
     FetchContent_Populate(cuda2rocm)
   endif()
   set(SIRIUS_ROCM_COMPAT_DIR "${cuda2rocm_SOURCE_DIR}/cuda-compat-shims/include")
-  # cucascade-rocm provides the <cucascade/...> stub headers that 133 sirius
+  # cucascade-rocm provides the <cucascade/...> headers that 133 sirius
   # source/header files include. Without this on the include path, every one of
   # those files fails with 'cucascade/... file not found' under ENABLE_ROCM.
   # The real cuCascade submodule (cucascade/) is only built when
-  # SIRIUS_ENABLE_CUCASCADE=ON; the stubs provide compile-only fallbacks for
-  # the default ROCm config (gates OFF) so the rest of the engine compiles.
+  # SIRIUS_ENABLE_CUCASCADE=ON; cucascade-rocm carries real implementations
+  # for the default ROCm config (gates OFF) so the rest of the engine compiles.
   set(SIRIUS_ROCM_CUCASCADE_DIR "${cuda2rocm_SOURCE_DIR}/cucascade-rocm/include")
   message(STATUS "cuda2rocm shims: ${SIRIUS_ROCM_COMPAT_DIR}")
-  message(STATUS "cuda2rocm cucascade stubs: ${SIRIUS_ROCM_CUCASCADE_DIR}")
+  message(STATUS "cuda2rocm cucascade headers: ${SIRIUS_ROCM_CUCASCADE_DIR}")
 endif()
 
 if(ENABLE_ROCM)
