@@ -77,7 +77,12 @@ jobs:
             # a high priority so apt actually selects its packages.
             printf 'Package: *\nPin: origin repo.radeon.com\nPin-Priority: 1001\n' | sudo tee /etc/apt/preferences.d/rocm-pin
             sudo apt-get update
-            sudo apt-get install -y rocm-dev rocm-utils hipblas-dev hipcub-dev rocthrust-dev
+            # Lean toolchain instead of rocm-dev: the metapackage pulls rocm-gdb,
+            # whose libpython3.12t64 dependency no longer resolves on the current
+            # runner image. hipcc lands in /opt/rocm/bin, and lld needs libxml2.
+            sudo apt-get install -y libxml2 hip-dev hipcc rocminfo hsa-rocr-dev \
+              rocm-device-libs hipblas-dev hipcub-dev rocthrust-dev
+            echo "/opt/rocm/bin" >> $GITHUB_PATH
           else
             echo "hipcc already available: $(hipcc --version | head -1)"
           fi
