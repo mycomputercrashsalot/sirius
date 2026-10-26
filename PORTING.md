@@ -30,12 +30,12 @@ for the 57 files containing `cuda*` runtime calls — achieved via a
 │  ├── cub/cub.cuh          #include hipcub + namespace cub=hipcub     │
 │  │   └── cub::detail::warp_threads = 64 (AMD wavefront)              │
 │  ├── cub/{config,util_arch,util_ptx,warp_scan,thread_store,...}.cuh  │
-│  ├── cucascade/           32-header stub (compile-only, throws RT)   │
+│  ├── cucascade/           32-header port (real implementations)      │
 │  │   ├── error.hpp        CUCASCADE_CUDA_TRY macro                   │
 │  │   ├── memory/          Tier, memory_space, reservation, OOM, ...  │
 │  │   ├── data/            data_batch, repository, idata_representation│
 │  │   ├── cudf/            gpu/host_data_representation               │
-│  │   └── cuda/            cuda_event stub                            │
+│  │   └── cuda/            cuda_event (hipEvent)                      │
 │  └── nvtx3/nvtx3.hpp      scoped_range → roctxRangeStartA/Stop       │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Source fixes:                                                      │
@@ -87,12 +87,14 @@ The `cub/cub.cuh` shim redirects to `<hipcub/hipcub.hpp>` and creates
 `cuco::bloom_filter` / `cuco::static_set` are excluded from `CUDA_SOURCES`.
 The PIMPL'd header (`sirius_dynamic_filter.hpp`) still compiles.
 
-### 3.5 cuCascade → stub (cuda2rocm cucascade-rocm/, via FetchContent)
+### 3.5 cuCascade → cucascade-rocm (cuda2rocm, via FetchContent)
 
 `SIRIUS_ENABLE_CUCASCADE` defaults OFF on ROCm. Instead of the real cuCascade
-submodule, 32 stub headers provide ~70 types so 63 `.cpp` files compile.
-Stub methods throw `std::runtime_error("cuCascade stub")` at runtime →
-graceful degradation to DuckDB CPU execution.
+submodule, cucascade-rocm's 32 headers provide ~70 types so 63 `.cpp` files
+compile. All 32 are real implementations now — the last two (the disk data
+clone and the numa pinned allocator) landed in October 2026. None of the
+runtime side has run on gfx942 yet, and with the gate off, execution still
+falls back to DuckDB CPU as before.
 
 ## 4. Compatibility Shim Design
 
@@ -137,23 +139,31 @@ redirect to `cub/cub.cuh`.
 `FULL_MASK` is passed but silently ignored — functionally correct for
 unmasked warps.
 
-### 4.3 cuCascade Stub (32 headers)
+### 4.3 cucascade-rocm (32 headers)
 
 Provides ~70 types across 32 headers in `cuda2rocm/cucascade-rocm/include/cucascade/` (via FetchContent).
-Design principles:
+All 32 are real implementations — the last two (disk data clone, numa pinned
+allocator) landed in October 2026. What's in there:
 
-- **5 real virtual base classes** (Sirius subclasses them): `memory_reservation_manager`,
+- **Virtual base classes** (Sirius subclasses them): `memory_reservation_manager`,
   `oom_handling_policy`, `idata_batch_probe`, `idata_representation`,
-  `reservation_aware_resource_adaptor`. These have real vtables so Sirius's
-  subclasses link cleanly.
-- **Template methods**: inline, throw `std::runtime_error` at runtime.
+  `reservation_aware_resource_adaptor`. Real vtables, real behavior.
+- **Memory-reservation subsystem**: `memory_space`, `reservation`,
+  `fixed_size_host_memory_resource` (pinned-host pool with single-counter
+  admission), `reservation_aware_resource_adaptor` — reservation tracking
+  is real, so the host-staging backpressure path sees accurate counters.
+- **Data representations**: gpu/host/disk clones are real deep copies
+  (cudf::copy / hipMemcpyAsync / file copy).
 - **`cucascade_out_of_memory`**: derives from `rmm::out_of_memory` (hipMM
   provides this), with `error_kind`/`requested_bytes`/`global_usage`/`pool_handle`
   members. Sirius catches `rmm::out_of_memory&` then `dynamic_cast` to this type.
 - **`CUCASCADE_CUDA_TRY` macro**: wraps `cudaError_t` (from cuda_runtime.h shim).
-- **`data_repository`/`data_repository_manager`**: fully inline (nearly verbatim
-  from real cuCascade — they only manipulate `std::vector<shared_ptr<data_batch>>`).
-- **`register_builtin_converters`**: inline no-op.
+- **`data_repository`/`data_repository_manager`**: nearly verbatim
+  from real cuCascade — they only manipulate `std::vector<shared_ptr<data_batch>>`.
+- **`register_builtin_converters`**: real gpu↔host converters.
+
+Verified by the host-logic test (compiles and passes in cuda2rocm's CI);
+none of the runtime side has run on gfx942 yet.
 
 ### 4.4 nvtx3 → roctx Shim
 
@@ -212,8 +222,9 @@ cmake --build build/rocm
 1. **hipDF/hipMM installation**: `scripts/build_rocm_deps.sh` builds and
    installs both from source. See §8 for the real-build fixes discovered on
    gfx942/ROCm 7.2.1 hardware.
-2. **Runtime validation**: The stub makes code compile; runtime behavior needs
-   testing on a host with hipDF installed. Stub methods throw → CPU fallback.
+2. **Runtime validation**: the headers are real implementations now, but none
+   of the runtime side has run on real hardware yet. Needs a host with hipDF
+   installed.
 3. **cuco port or replacement**: Needed for Bloom/in-list dynamic filters.
 4. **NVML → rocm-smi/hwloc**: For multi-GPU topology.
 
